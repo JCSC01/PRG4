@@ -1,1 +1,568 @@
+# -*- coding: utf-8 -*-
+"""
+Sistema 3: Registro de Empleados
+Tema: RRHH (claro con acentos naranja/azul), distinto a S1/S2
+Usa: QLabel, QPushButton, QLineEdit, QTextEdit, QVBoxLayout, QHBoxLayout,
+QGridLayout, QFormLayout, QCheckBox, QRadioButton, QComboBox,
+QApplication, QWidget, QMainWindow, QDialog
+
+Funciones: Registrar, Buscar, Editar, Eliminar, Seleccionar departamento/cargo/
+contrato/habilidades, Agregar observaciones, Mostrar info, Validar,
+Ventanas secundarias con QDialog. Usa QMainWindow.
+"""
+import sys
+from datetime import datetime
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QDialog,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QTextEdit,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QFormLayout,
+    QCheckBox,
+    QRadioButton,
+    QComboBox,
+    QGroupBox,
+    QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QFrame,
+    QSplitter,
+)
+from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt
+
+
+class DetalleEmpleadoDialog(QDialog):
+    def __init__(self, datos, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Ficha del Empleado")
+        self.setFixedSize(460, 420)
+        self.setModal(True)
+
+        v = QVBoxLayout(self)
+        t = QLabel("Ficha de información del empleado")
+        ft = QFont()
+        ft.setPointSize(12)
+        ft.setBold(True)
+        t.setFont(ft)
+        t.setAlignment(Qt.AlignCenter)
+        v.addWidget(t)
+
+        f = QFormLayout()
+        f.addRow("DNI/ID:", QLabel(datos.get("id", "-")))
+        f.addRow("Nombres y Apellidos:", QLabel(datos.get("nombre", "-")))
+        f.addRow("Departamento:", QLabel(datos.get("departamento", "-")))
+        f.addRow("Cargo:", QLabel(datos.get("cargo", "-")))
+        f.addRow("Tipo de contrato:", QLabel(datos.get("contrato", "-")))
+        f.addRow("Sueldo base:", QLabel(datos.get("sueldo", "-")))
+        f.addRow("Teléfono:", QLabel(datos.get("telefono", "-")))
+        f.addRow("Correo:", QLabel(datos.get("correo", "-")))
+        f.addRow("Fecha ingreso:", QLabel(datos.get("fecha", "-")))
+        f.addRow("Habilidades:", QLabel(datos.get("habilidades", "-") or "-"))
+        f.addRow("Observaciones:", QLabel(datos.get("observaciones", "-") or "-"))
+        v.addLayout(f)
+
+        h = QHBoxLayout()
+        b = QPushButton("Cerrar")
+        b.setDefault(True)
+        b.clicked.connect(self.accept)
+        h.addStretch()
+        h.addWidget(b)
+        v.addLayout(h)
+
+
+class ConfirmacionDialog(QDialog):
+    def __init__(self, mensaje, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Confirmación")
+        self.setFixedSize(340, 120)
+        self.setModal(True)
+        v = QVBoxLayout(self)
+        l = QLabel(mensaje)
+        l.setWordWrap(True)
+        l.setAlignment(Qt.AlignCenter)
+        v.addWidget(l)
+        h = QHBoxLayout()
+        si = QPushButton("Sí")
+        no = QPushButton("No")
+        no.setDefault(True)
+        si.clicked.connect(self.accept)
+        no.clicked.connect(self.reject)
+        h.addStretch()
+        h.addWidget(si)
+        h.addWidget(no)
+        h.addStretch()
+        v.addLayout(h)
+
+
+class SistemaEmpleados(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Sistema 3 - Registro de Empleados (RRHH)")
+        self.setMinimumSize(980, 680)
+        self.registros = []
+        self.editando_index = -1
+        self._setup_ui()
+        self._estilo_claro()
+        self._mostrar_tabla()
+
+    def _setup_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(12)
+
+        titulo = QLabel("Módulo de Recursos Humanos - Registro de Empleados")
+        ft = QFont()
+        ft.setPointSize(16)
+        ft.setBold(True)
+        titulo.setFont(ft)
+        titulo.setAlignment(Qt.AlignCenter)
+        root.addWidget(titulo)
+
+        linea = QFrame()
+        linea.setFrameShape(QFrame.HLine)
+        root.addWidget(linea)
+
+        splitter = QSplitter(Qt.Horizontal)
+        root.addWidget(splitter, stretch=1)
+
+        # Izquierda
+        izq = QWidget()
+        v_izq = QVBoxLayout(izq)
+        v_izq.setContentsMargins(10, 10, 10, 10)
+        v_izq.setSpacing(10)
+
+        gb = QGroupBox("Datos del Empleado")
+        v_gb = QVBoxLayout(gb)
+
+        # QFormLayout
+        f = QFormLayout()
+        f.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        f.setHorizontalSpacing(10)
+        f.setVerticalSpacing(6)
+        self.txt_id = QLineEdit()
+        self.txt_id.setPlaceholderText("Ej. EMP-001 / DNI")
+        self.txt_nombre = QLineEdit()
+        self.txt_nombre.setPlaceholderText("Nombres y apellidos completos")
+        self.cmb_dep = QComboBox()
+        self.cmb_dep.addItems(
+            ["-- Seleccionar --", "Recursos Humanos", "Tecnología", "Ventas", "Contabilidad", "Logística", "Legal"]
+        )
+        self.cmb_cargo = QComboBox()
+        self.cmb_cargo.addItems(
+            ["-- Seleccionar --", "Analista", "Desarrollador", "Coordinador", "Asistente", "Gerente", "Técnico"]
+        )
+        self.txt_sueldo = QLineEdit()
+        self.txt_sueldo.setPlaceholderText("Monto en soles S/.")
+        self.txt_tel = QLineEdit()
+        self.txt_tel.setPlaceholderText("Teléfono de contacto")
+        self.txt_correo = QLineEdit()
+        self.txt_correo.setPlaceholderText("correo@empresa.com")
+        f.addRow("DNI/ID *:", self.txt_id)
+        f.addRow("Nombre completo *:", self.txt_nombre)
+        f.addRow("Departamento *:", self.cmb_dep)
+        f.addRow("Cargo *:", self.cmb_cargo)
+        f.addRow("Sueldo base *:", self.txt_sueldo)
+        f.addRow("Teléfono:", self.txt_tel)
+        f.addRow("Correo:", self.txt_correo)
+        v_gb.addLayout(f)
+
+        # Tipo contrato QRadioButton
+        gb_con = QGroupBox("Tipo de contrato")
+        h_con = QHBoxLayout(gb_con)
+        self.rb_indef = QRadioButton("Indefinido")
+        self.rb_plazo = QRadioButton("Plazo fijo")
+        self.rb_prac = QRadioButton("Prácticas")
+        self.rb_cas = QRadioButton("CAS")
+        h_con.addWidget(self.rb_indef)
+        h_con.addWidget(self.rb_plazo)
+        h_con.addWidget(self.rb_prac)
+        h_con.addWidget(self.rb_cas)
+        h_con.addStretch()
+        v_gb.addWidget(gb_con)
+
+        # Habilidades QCheckBox en QGridLayout
+        gb_hab = QGroupBox("Habilidades / Competencias")
+        g_hab = QGridLayout(gb_hab)
+        self.chk_com = QCheckBox("Comunicación")
+        self.chk_team = QCheckBox("Trabajo en equipo")
+        self.chk_ingles = QCheckBox("Inglés")
+        self.chk_sql = QCheckBox("SQL")
+        self.chk_python = QCheckBox("Python")
+        self.chk_lider = QCheckBox("Liderazgo")
+        g_hab.addWidget(self.chk_com, 0, 0)
+        g_hab.addWidget(self.chk_team, 0, 1)
+        g_hab.addWidget(self.chk_ingles, 0, 2)
+        g_hab.addWidget(self.chk_sql, 1, 0)
+        g_hab.addWidget(self.chk_python, 1, 1)
+        g_hab.addWidget(self.chk_lider, 1, 2)
+        v_gb.addWidget(gb_hab)
+
+        # Observaciones QTextEdit
+        gb_obs = QGroupBox("Observaciones")
+        v_obs = QVBoxLayout(gb_obs)
+        self.txt_obs = QTextEdit()
+        self.txt_obs.setPlaceholderText("Agregar observaciones relevantes...")
+        self.txt_obs.setFixedHeight(70)
+        v_obs.addWidget(self.txt_obs)
+        v_gb.addWidget(gb_obs)
+
+        v_izq.addWidget(gb)
+
+        # Botones
+        h_btn = QHBoxLayout()
+        self.btn_registrar = QPushButton("Registrar empleado")
+        self.btn_buscar = QPushButton("Buscar")
+        self.btn_editar = QPushButton("Guardar edición")
+        self.btn_eliminar = QPushButton("Eliminar")
+        self.btn_limpiar = QPushButton("Limpiar")
+        self.btn_mostrar = QPushButton("Mostrar información")
+        self.btn_cancelar = QPushButton("Cancelar edición")
+        self.btn_cancelar.setVisible(False)
+        self.btn_editar.setEnabled(False)
+        h_btn.addWidget(self.btn_registrar)
+        h_btn.addWidget(self.btn_limpiar)
+        h_btn.addWidget(self.btn_editar)
+        h_btn.addWidget(self.btn_cancelar)
+        h_btn.addWidget(self.btn_eliminar)
+        h_btn.addWidget(self.btn_buscar)
+        h_btn.addWidget(self.btn_mostrar)
+        h_btn.addStretch()
+        v_izq.addLayout(h_btn)
+
+        splitter.addWidget(izq)
+
+        # Derecha tabla
+        der = QWidget()
+        v_der = QVBoxLayout(der)
+        v_der.setContentsMargins(8, 8, 8, 8)
+        v_der.setSpacing(8)
+        lbl = QLabel("Listado de empleados (en memoria)")
+        fl = QFont()
+        fl.setBold(True)
+        lbl.setFont(fl)
+        v_der.addWidget(lbl)
+
+        self.tabla = QTableWidget(0, 8)
+        self.tabla.setHorizontalHeaderLabels(
+            ["ID/DNI", "Nombre", "Departamento", "Cargo", "Contrato", "Sueldo", "Correo", "Fecha ingreso"]
+        )
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tabla.setAlternatingRowColors(True)
+        v_der.addWidget(self.tabla)
+
+        h_inf = QHBoxLayout()
+        self.lbl_total = QLabel("Total de empleados: 0")
+        h_inf.addWidget(self.lbl_total)
+        h_inf.addStretch()
+        v_der.addLayout(h_inf)
+
+        splitter.addWidget(der)
+        splitter.setSizes([440, 540])
+
+        pie = QHBoxLayout()
+        pie.addWidget(QLabel("PySide6 • Sistema 3 • QMainWindow + QDialog"))
+        pie.addStretch()
+        root.addLayout(pie)
+
+        # Conexiones
+        self.btn_registrar.clicked.connect(self.registrar)
+        self.btn_limpiar.clicked.connect(self.limpiar)
+        self.btn_buscar.clicked.connect(self.buscar)
+        self.btn_editar.clicked.connect(self.guardar_edicion)
+        self.btn_cancelar.clicked.connect(self.cancelar_edicion)
+        self.btn_eliminar.clicked.connect(self.eliminar)
+        self.btn_mostrar.clicked.connect(self.mostrar_info)
+        self.tabla.itemDoubleClicked.connect(lambda: self.cargar_para_editar())
+
+    def _estilo_claro(self):
+        self.setStyleSheet(
+            """
+            QMainWindow { background: #fafafa; }
+            QWidget { font-family: 'Segoe UI', sans-serif; color: #111827; }
+            QGroupBox { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-top: 6px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #ea580c; font-weight: bold; }
+            QLineEdit, QTextEdit, QComboBox { border: 1px solid #d1d5db; border-radius: 6px; padding: 6px; background: #ffffff; }
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border: 2px solid #2563eb; }
+            QPushButton { background: #2563eb; color: #ffffff; border: none; border-radius: 6px; padding: 7px 12px; }
+            QPushButton:hover { background: #1d4ed8; }
+            QPushButton:pressed { background: #1e40af; }
+            QPushButton:disabled { background: #9ca3af; }
+            QTableWidget { background: #ffffff; gridline-color: #e5e7eb; border: 1px solid #e5e7eb; border-radius: 6px; alternate-background-color: #fff7ed; }
+            QHeaderView::section { background: #fed7aa; padding: 6px; border: none; font-weight: bold; color: #111827; }
+            QSplitter::handle { background: #d1d5db; width: 3px; }
+            QRadioButton, QCheckBox { spacing: 6px; }
+            QFrame { color: #e5e7eb; }
+            QComboBox QAbstractItemView { background: #ffffff; }
+            """
+        )
+
+    def _contrato(self):
+        if self.rb_indef.isChecked():
+            return "Indefinido"
+        if self.rb_plazo.isChecked():
+            return "Plazo fijo"
+        if self.rb_prac.isChecked():
+            return "Prácticas"
+        if self.rb_cas.isChecked():
+            return "CAS"
+        return ""
+
+    def _habilidades(self):
+        h = []
+        if self.chk_com.isChecked():
+            h.append("Comunicación")
+        if self.chk_team.isChecked():
+            h.append("Trabajo en equipo")
+        if self.chk_ingles.isChecked():
+            h.append("Inglés")
+        if self.chk_sql.isChecked():
+            h.append("SQL")
+        if self.chk_python.isChecked():
+            h.append("Python")
+        if self.chk_lider.isChecked():
+            h.append("Liderazgo")
+        return ", ".join(h)
+
+    def _set_contrato(self, c):
+        c = (c or "").lower()
+        self.rb_indef.setChecked(c == "indefinido")
+        self.rb_plazo.setChecked("plazo" in c)
+        self.rb_prac.setChecked("prácticas" in c or "practicas" in c)
+        self.rb_cas.setChecked(c == "cas")
+
+    def _set_hab(self, t):
+        t = (t or "").lower()
+        self.chk_com.setChecked("comunicación" in t or "comunicacion" in t)
+        self.chk_team.setChecked("equipo" in t)
+        self.chk_ingles.setChecked("inglés" in t or "ingles" in t)
+        self.chk_sql.setChecked("sql" in t)
+        self.chk_python.setChecked("python" in t)
+        self.chk_lider.setChecked("liderazgo" in t)
+
+    def validar(self, d):
+        if not d.get("id"):
+            return False, "DNI/ID es obligatorio."
+        if not d.get("nombre"):
+            return False, "Nombre completo es obligatorio."
+        if d.get("departamento") == "-- Seleccionar --":
+            return False, "Debe seleccionar departamento."
+        if d.get("cargo") == "-- Seleccionar --":
+            return False, "Debe seleccionar cargo."
+        try:
+            float((d.get("sueldo") or "0").replace(",", "."))
+        except ValueError:
+            return False, "Sueldo base debe ser numérico."
+        correo = d.get("correo") or ""
+        if correo and "@" not in correo:
+            return False, "Correo no válido."
+        if not d.get("contrato"):
+            return False, "Debe seleccionar tipo de contrato."
+        return True, ""
+
+    def limpiar(self):
+        self.txt_id.clear()
+        self.txt_nombre.clear()
+        self.cmb_dep.setCurrentIndex(0)
+        self.cmb_cargo.setCurrentIndex(0)
+        self.txt_sueldo.clear()
+        self.txt_tel.clear()
+        self.txt_correo.clear()
+        self.rb_indef.setAutoExclusive(False)
+        self.rb_plazo.setAutoExclusive(False)
+        self.rb_prac.setAutoExclusive(False)
+        self.rb_cas.setAutoExclusive(False)
+        self.rb_indef.setChecked(False)
+        self.rb_plazo.setChecked(False)
+        self.rb_prac.setChecked(False)
+        self.rb_cas.setChecked(False)
+        self.rb_indef.setAutoExclusive(True)
+        self.rb_plazo.setAutoExclusive(True)
+        self.rb_prac.setAutoExclusive(True)
+        self.rb_cas.setAutoExclusive(True)
+        self.chk_com.setChecked(False)
+        self.chk_team.setChecked(False)
+        self.chk_ingles.setChecked(False)
+        self.chk_sql.setChecked(False)
+        self.chk_python.setChecked(False)
+        self.chk_lider.setChecked(False)
+        self.txt_obs.clear()
+        self.editando_index = -1
+        self.btn_registrar.setEnabled(True)
+        self.btn_editar.setEnabled(False)
+        self.btn_cancelar.setVisible(False)
+        self.tabla.clearSelection()
+        self.txt_id.setFocus()
+
+    def registrar(self):
+        d = {
+            "id": self.txt_id.text().strip(),
+            "nombre": self.txt_nombre.text().strip(),
+            "departamento": self.cmb_dep.currentText(),
+            "cargo": self.cmb_cargo.currentText(),
+            "sueldo": self.txt_sueldo.text().strip(),
+            "telefono": self.txt_tel.text().strip(),
+            "correo": self.txt_correo.text().strip(),
+            "contrato": self._contrato(),
+            "habilidades": self._habilidades(),
+            "fecha": datetime.now().strftime("%d/%m/%Y"),
+            "observaciones": self.txt_obs.toPlainText().strip(),
+        }
+        ok, msg = self.validar(d)
+        if not ok:
+            QMessageBox.warning(self, "Validación", msg)
+            return
+        if any(r["id"].lower() == d["id"].lower() for r in self.registros):
+            QMessageBox.warning(self, "Validación", "Ya existe empleado con ese ID/DNI.")
+            return
+        if ConfirmacionDialog("¿Confirmas registrar este empleado?", self).exec() == QDialog.Accepted:
+            self.registros.append(d)
+            self.limpiar()
+            self._mostrar_tabla()
+            QMessageBox.information(self, "Éxito", "Empleado registrado correctamente.")
+
+    def _mostrar_tabla(self):
+        self.tabla.setRowCount(len(self.registros))
+        for i, r in enumerate(self.registros):
+            self.tabla.setItem(i, 0, QTableWidgetItem(r["id"]))
+            self.tabla.setItem(i, 1, QTableWidgetItem(r["nombre"]))
+            self.tabla.setItem(i, 2, QTableWidgetItem(r["departamento"]))
+            self.tabla.setItem(i, 3, QTableWidgetItem(r["cargo"]))
+            self.tabla.setItem(i, 4, QTableWidgetItem(r["contrato"]))
+            self.tabla.setItem(i, 5, QTableWidgetItem(r["sueldo"]))
+            self.tabla.setItem(i, 6, QTableWidgetItem(r["correo"]))
+            self.tabla.setItem(i, 7, QTableWidgetItem(r["fecha"]))
+        self.lbl_total.setText(f"Total de empleados: {len(self.registros)}")
+
+    def cargar_para_editar(self):
+        if not self.registros:
+            return
+        rows = self.tabla.selectionModel().selectedRows()
+        if not rows:
+            QMessageBox.information(self, "Editar", "Seleccione una fila.")
+            return
+        idx = rows[0].row()
+        r = self.registros[idx]
+        self.editando_index = idx
+        self.txt_id.setText(r["id"])
+        self.txt_nombre.setText(r["nombre"])
+        self.cmb_dep.setCurrentText(r["departamento"])
+        self.cmb_cargo.setCurrentText(r["cargo"])
+        self.txt_sueldo.setText(r["sueldo"])
+        self.txt_tel.setText(r["telefono"])
+        self.txt_correo.setText(r["correo"])
+        self._set_contrato(r["contrato"])
+        self._set_hab(r["habilidades"])
+        self.txt_obs.setPlainText(r.get("observaciones", ""))
+        self.btn_registrar.setEnabled(False)
+        self.btn_editar.setEnabled(True)
+        self.btn_cancelar.setVisible(True)
+        self.txt_id.setFocus()
+
+    def guardar_edicion(self):
+        if self.editando_index < 0:
+            return
+        d = {
+            "id": self.txt_id.text().strip(),
+            "nombre": self.txt_nombre.text().strip(),
+            "departamento": self.cmb_dep.currentText(),
+            "cargo": self.cmb_cargo.currentText(),
+            "sueldo": self.txt_sueldo.text().strip(),
+            "telefono": self.txt_tel.text().strip(),
+            "correo": self.txt_correo.text().strip(),
+            "contrato": self._contrato(),
+            "habilidades": self._habilidades(),
+            "fecha": self.registros[self.editando_index].get("fecha", datetime.now().strftime("%d/%m/%Y")),
+            "observaciones": self.txt_obs.toPlainText().strip(),
+        }
+        ok, msg = self.validar(d)
+        if not ok:
+            QMessageBox.warning(self, "Validación", msg)
+            return
+        for i, r in enumerate(self.registros):
+            if i != self.editando_index and r["id"].lower() == d["id"].lower():
+                QMessageBox.warning(self, "Validación", "ID/DNI ya existe en otro registro.")
+                return
+        if ConfirmacionDialog("¿Confirmas guardar los cambios?", self).exec() == QDialog.Accepted:
+            self.registros[self.editando_index] = d
+            self.cancelar_edicion()
+            self._mostrar_tabla()
+            QMessageBox.information(self, "Éxito", "Empleado editado correctamente.")
+
+    def cancelar_edicion(self):
+        self.limpiar()
+
+    def eliminar(self):
+        if not self.registros:
+            QMessageBox.information(self, "Eliminar", "No hay registros.")
+            return
+        rows = self.tabla.selectionModel().selectedRows()
+        if not rows:
+            QMessageBox.information(self, "Eliminar", "Seleccione una fila.")
+            return
+        idx = rows[0].row()
+        nombre = self.registros[idx]["nombre"]
+        if ConfirmacionDialog(f"¿Confirmas eliminar a '{nombre}'?", self).exec() == QDialog.Accepted:
+            del self.registros[idx]
+            if self.editando_index == idx:
+                self.cancelar_edicion()
+            elif self.editando_index > idx:
+                self.editando_index -= 1
+            self._mostrar_tabla()
+            QMessageBox.information(self, "Éxito", "Registro eliminado correctamente.")
+
+    def buscar(self):
+        t = (self.txt_id.text().strip() or self.txt_nombre.text().strip()).lower()
+        if not t:
+            QMessageBox.information(self, "Buscar", "Ingrese ID/DNI o nombre.")
+            return
+        res = [r for r in self.registros if t in r["id"].lower() or t in r["nombre"].lower()]
+        if not res:
+            QMessageBox.information(self, "Buscar", "No se encontraron empleados.")
+            return
+        r = res[0]
+        try:
+            idx = self.registros.index(r)
+        except ValueError:
+            idx = -1
+        if idx >= 0:
+            self.tabla.selectRow(idx)
+            self.cargar_para_editar()
+        DetalleEmpleadoDialog(r, self).exec()
+
+    def mostrar_info(self):
+        if not self.registros:
+            QMessageBox.information(self, "Información", "No hay registros.")
+            return
+        rows = self.tabla.selectionModel().selectedRows()
+        if not rows:
+            QMessageBox.information(self, "Información", "Seleccione un registro.")
+            return
+        idx = rows[0].row()
+        DetalleEmpleadoDialog(self.registros[idx], self).exec()
+
+
+def main():
+    app = QApplication(sys.argv)
+    w = SistemaEmpleados()
+    w.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
+
+# Desarrollado por SARMIENTO
 
