@@ -1,0 +1,250 @@
+"""
+CALCULADORA 1 - Interfaz grafica con PySide6
+=============================================
+Biblioteca grafica: PySide6 (Qt 6)
+
+Instalacion:  pip install PySide6
+Ejecucion:    python calculadora_pyside6.py
+"""
+
+import sys
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QApplication,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+# Numero maximo de operaciones que se guardan en el historial
+MAXIMO_HISTORIAL = 5
+
+
+def aplicar_operacion(izquierda, operador, derecha):
+    """Realiza la operacion indicada. Devuelve None si no se puede (division por cero)."""
+    if operador == "+":
+        return izquierda + derecha
+    if operador == "-":
+        return izquierda - derecha
+    if operador == "*":
+        return izquierda * derecha
+    if operador == "/":
+        if derecha == 0:
+            return None
+        return izquierda / derecha
+
+
+def formatear_numero(valor):
+    """Muestra 8 en lugar de 8.0 y evita los decimales innecesarios."""
+    if valor == int(valor):
+        return str(int(valor))
+    return str(round(valor, 10))
+
+
+class Calculadora(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Calculadora 1 - PySide6")
+        self.resize(360, 560)
+
+        # Estado de la calculadora
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.historial = []
+
+        self.crear_interfaz()
+        self.actualizar_pantalla()
+
+    # ---------------------------------------------------------------- interfaz
+    def crear_interfaz(self):
+        widget = QWidget()
+        self.setCentralWidget(widget)
+        disposicion = QVBoxLayout(widget)
+        disposicion.setContentsMargins(12, 12, 12, 12)
+        disposicion.setSpacing(10)
+
+        # Pantalla
+        self.pantalla = QLineEdit()
+        self.pantalla.setReadOnly(True)
+        self.pantalla.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.pantalla.setMinimumHeight(60)
+        self.pantalla.setStyleSheet(
+            "font-size: 26px; padding: 8px; border: 2px solid #2a6f97;"
+            "border-radius: 8px; background-color: #eef6fb;"
+        )
+        disposicion.addWidget(self.pantalla)
+
+        # Teclado: cada fila es una lista de (texto, numero de columnas que ocupa)
+        filas = [
+            [("7", 1), ("8", 1), ("9", 1), ("/", 1)],
+            [("4", 1), ("5", 1), ("6", 1), ("*", 1)],
+            [("1", 1), ("2", 1), ("3", 1), ("-", 1)],
+            [("0", 1), (".", 1), ("\u232b", 1), ("+", 1)],
+            [("C", 2), ("=", 2)],
+        ]
+
+        rejilla = QGridLayout()
+        rejilla.setSpacing(6)
+        for numero_fila, fila in enumerate(filas):
+            columna = 0  # los botones anchos ocupan varias columnas
+            for texto, ancho in fila:
+                boton = QPushButton(texto)
+                boton.setMinimumHeight(52)
+                boton.setStyleSheet(self.estilo_boton(texto))
+                boton.clicked.connect(self.pulsar_tecla_directamente)
+                boton.setProperty("tecla", texto)
+                rejilla.addWidget(boton, numero_fila, columna, 1, ancho)
+                columna += ancho
+        disposicion.addLayout(rejilla)
+
+        # Historial
+        disposicion.addWidget(QLabel("Historial (ultimas 5 operaciones)"))
+        self.lista_historial = QListWidget()
+        self.lista_historial.setMinimumHeight(120)
+        self.lista_historial.setStyleSheet("padding: 4px;")
+        disposicion.addWidget(self.lista_historial)
+
+    def estilo_boton(self, texto):
+        """Cada tipo de boton tiene un color distinto."""
+        if texto in "+-*/=":
+            return "background-color:#2a6f97; color:white; font-size:20px; border-radius:8px;"
+        if texto == "C":
+            return "background-color:#c1443c; color:white; font-size:20px; border-radius:8px;"
+        return "background-color:#f4f7fa; font-size:20px; border:1px solid #b9c6d0; border-radius:8px;"
+
+    # ------------------------------------------------------------------ botones
+    def pulsar_tecla_directamente(self):
+        """Se ejecuta al pulsar un boton del teclado."""
+        self.pulsar_tecla(self.sender().property("tecla"))
+
+    def pulsar_tecla(self, tecla):
+        if tecla.isdigit() or tecla == ".":
+            self.escribir_numero(tecla)
+        elif tecla in "+-*/":
+            self.elegir_operador(tecla)
+        elif tecla == "=":
+            self.calcular()
+        elif tecla == "C":
+            self.limpiar()
+        elif tecla == "\u232b":
+            self.borrar_ultimo_digito()
+
+    def escribir_numero(self, digito):
+        if self.esperando_numero:
+            self.texto = ""
+            self.esperando_numero = False
+
+        if digito == ".":
+            if "." in self.texto:
+                return
+            self.texto += "." if self.texto else "0."
+        else:
+            self.texto += digito
+
+        self.actualizar_pantalla()
+
+    def elegir_operador(self, operador):
+        # Si ya habia una operacion pendiente, primero se resuelve
+        if self.operacion_pendiente is not None and not self.esperando_numero:
+            if not self.resolver_operacion_pendiente():
+                return
+
+        self.operacion_pendiente = operador
+        self.valor_pendiente = self.valor_actual()
+        self.esperando_numero = True
+
+    def calcular(self):
+        if self.operacion_pendiente is None or self.valor_pendiente is None:
+            return
+
+        operador = self.operacion_pendiente
+        izquierda = self.valor_pendiente
+        derecha = self.valor_actual()
+        resultado = aplicar_operacion(izquierda, operador, derecha)
+
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return
+
+        self.agregar_al_historial(
+            f"{formatear_numero(izquierda)} {operador} "
+            f"{formatear_numero(derecha)} = {formatear_numero(resultado)}"
+        )
+
+        self.texto = formatear_numero(resultado)
+        self.operacion_pendiente = None
+        self.valor_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    def resolver_operacion_pendiente(self):
+        """Calcula 5 + 3 = 8 sin borrar la operacion pendiente del historial."""
+        resultado = aplicar_operacion(
+            self.valor_pendiente, self.operacion_pendiente, self.valor_actual()
+        )
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return False
+        self.texto = formatear_numero(resultado)
+        self.valor_pendiente = resultado
+        self.actualizar_pantalla()
+        return True
+
+    def borrar_ultimo_digito(self):
+        if self.esperando_numero:
+            return
+        self.texto = self.texto[:-1]
+        if self.texto in ("", "-"):
+            self.texto = "0"
+        self.actualizar_pantalla()
+
+    def limpiar(self):
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    # ------------------------------------------------------------------ helpers
+    def valor_actual(self):
+        try:
+            return float(self.texto)
+        except ValueError:
+            return 0.0
+
+    def mostrar_error(self, mensaje):
+        self.texto = mensaje
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    def actualizar_pantalla(self):
+        self.pantalla.setText(self.texto)
+
+    # ---------------------------------------------------------------- historial
+    def agregar_al_historial(self, operacion):
+        self.historial.append(operacion)
+        # Si se supera el limite, se elimina la operacion mas antigua
+        while len(self.historial) > MAXIMO_HISTORIAL:
+            self.historial.pop(0)
+        self.actualizar_historial()
+
+    def actualizar_historial(self):
+        self.lista_historial.clear()
+        self.lista_historial.addItems(self.historial)
+
+
+if __name__ == "__main__":
+    aplicacion = QApplication(sys.argv)
+    ventana = Calculadora()
+    ventana.show()
+    sys.exit(aplicacion.exec())
