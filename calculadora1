@@ -1,0 +1,292 @@
+"""
+CALCULADORA 3 - Interfaz grafica con Toga
+=========================================
+Biblioteca grafica: Toga (BeeWare) -Widgets nativos del sistema
+
+Instalacion:  pip install toga toga-winforms   (Windows)
+             pip install toga                  (Linux / macOS)
+Ejecucion:    python calculadora_3.py
+
+Toga usa los controles nativos de cada sistema operativo, por eso su
+apariencia es distinta a la de PySide6 y a la de Tkinter.
+"""
+
+import sys
+
+import toga
+from toga.style import Pack
+MAXIMO_HISTORIAL = 5
+
+# Colores del estilo "tarjeta clara"
+COLOR_FONDO = "#f5f6fa"
+COLOR_PANTALLA = "#ffffff"
+COLOR_TEXTO = "#1f2933"
+COLOR_NUMERO = "#e3e8ef"
+COLOR_OPERADOR = "#7b5ea7"
+COLOR_IGUAL = "#2f9e6f"
+COLOR_BORRAR = "#d1495b"
+
+
+def aplicar_operacion(izquierda, operador, derecha):
+    """Realiza la operacion indicada. Devuelve None si no se puede (division por cero)."""
+    if operador == "+":
+        return izquierda + derecha
+    if operador == "-":
+        return izquierda - derecha
+    if operador == "*":
+        return izquierda * derecha
+    if operador == "/":
+        if derecha == 0:
+            return None
+        return izquierda / derecha
+
+
+def formatear_numero(valor):
+    """Muestra 8 en lugar de 8.0 y evita los decimales innecesarios."""
+    if valor == int(valor):
+        return str(int(valor))
+    return str(round(valor, 10))
+
+
+class CalculadoraToga(toga.App):
+    """Aplicacion de Toga. En Toga la clase principal hereda de toga.App."""
+
+    def startup(self):
+        self.main_window = toga.MainWindow(
+            title="Calculadora 3 - Toga", size=(420, 700)
+        )
+
+        # Estado de la calculadora
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.historial = []
+
+        self.main_window.content = self.crear_interfaz()
+        self.actualizar_pantalla()
+        self.actualizar_historial()
+        self.main_window.show()
+
+    # ---------------------------------------------------------------- interfaz
+    def crear_interfaz(self):
+        contenedor = toga.Box(
+            style=Pack(
+                direction="column",
+                margin=12,
+                background_color=COLOR_FONDO,
+            )
+        )
+
+        # Pantalla
+        self.etiqueta_pantalla = toga.Label(
+            "0",
+            style=Pack(
+                background_color=COLOR_PANTALLA,
+                color=COLOR_TEXTO,
+                font_size=30,
+                font_weight="bold",
+                text_align="right",
+                margin=10,
+                margin_bottom=10,
+            ),
+        )
+        contenedor.children.append(self.etiqueta_pantalla)
+
+        # Teclado
+        filas = [
+            [("7", COLOR_NUMERO), ("8", COLOR_NUMERO), ("9", COLOR_NUMERO), ("/", COLOR_OPERADOR)],
+            [("4", COLOR_NUMERO), ("5", COLOR_NUMERO), ("6", COLOR_NUMERO), ("*", COLOR_OPERADOR)],
+            [("1", COLOR_NUMERO), ("2", COLOR_NUMERO), ("3", COLOR_NUMERO), ("-", COLOR_OPERADOR)],
+            [("0", COLOR_NUMERO), (".", COLOR_NUMERO), ("\u232b", COLOR_OPERADOR), ("+", COLOR_OPERADOR)],
+            [("C", COLOR_BORRAR), ("=", COLOR_IGUAL)],
+        ]
+
+        teclado = toga.Box(style=Pack(direction="column", flex=1))
+        for fila in filas:
+            caja_fila = toga.Box(style=Pack(direction="row", flex=1, margin_bottom=4))
+            for texto, color in fila:
+                caja_fila.children.append(
+                    toga.Button(
+                        texto,
+                        on_press=self.crear_manejador(texto),
+                        style=Pack(
+                            flex=1,
+                            background_color=color,
+                            color="#ffffff",
+                            font_size=18,
+                            font_weight="bold",
+                            margin_right=4,
+                            height=44,
+                        ),
+                    )
+                )
+            teclado.children.append(caja_fila)
+        contenedor.children.append(teclado)
+
+        # Historial (Toga no tiene un widget de lista, asi que se usan etiquetas)
+        contenedor.children.append(
+            toga.Label(
+                "HISTORIAL (ultimas 5 operaciones)",
+                style=Pack(
+                    color=COLOR_TEXTO,
+                    font_size=11,
+                    font_weight="bold",
+                    margin_top=10,
+                    margin_bottom=4,
+                ),
+            )
+        )
+        self.contenedor_historial = toga.Box(
+            style=Pack(direction="column", background_color=COLOR_PANTALLA, margin=8)
+        )
+        # Se crean 5 etiquetas fijas y solo se cambia su texto
+        self.etiquetas_historial = []
+        for _ in range(MAXIMO_HISTORIAL):
+            etiqueta = toga.Label(
+                " ",
+                style=Pack(color=COLOR_TEXTO, font_size=13, margin_bottom=2),
+            )
+            self.etiquetas_historial.append(etiqueta)
+            self.contenedor_historial.children.append(etiqueta)
+        contenedor.children.append(self.contenedor_historial)
+
+        return contenedor
+
+    def crear_manejador(self, tecla):
+        """Devuelve la funcion que se ejecuta al pulsar un boton.
+
+        Toga llama al manejador con varios argumentos, por eso se
+        aceptan con *args y **kwargs.
+        """
+
+        def manejador(*args, **kwargs):
+            self.pulsar_tecla(tecla)
+
+        return manejador
+
+    # ------------------------------------------------------------------ botones
+    def pulsar_tecla(self, tecla):
+        if tecla.isdigit() or tecla == ".":
+            self.escribir_numero(tecla)
+        elif tecla in "+-*/":
+            self.elegir_operador(tecla)
+        elif tecla == "=":
+            self.calcular()
+        elif tecla == "C":
+            self.limpiar()
+        elif tecla == "\u232b":
+            self.borrar_ultimo_digito()
+
+    def escribir_numero(self, digito):
+        if self.esperando_numero:
+            self.texto = ""
+            self.esperando_numero = False
+
+        if digito == ".":
+            if "." in self.texto:
+                return
+            self.texto += "." if self.texto else "0."
+        else:
+            self.texto += digito
+
+        self.actualizar_pantalla()
+
+    def elegir_operador(self, operador):
+        if self.operacion_pendiente is not None and not self.esperando_numero:
+            if not self.resolver_operacion_pendiente():
+                return
+
+        self.operacion_pendiente = operador
+        self.valor_pendiente = self.valor_actual()
+        self.esperando_numero = True
+
+    def calcular(self):
+        if self.operacion_pendiente is None or self.valor_pendiente is None:
+            return
+
+        operador = self.operacion_pendiente
+        izquierda = self.valor_pendiente
+        derecha = self.valor_actual()
+        resultado = aplicar_operacion(izquierda, operador, derecha)
+
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return
+
+        self.agregar_al_historial(
+            f"{formatear_numero(izquierda)} {operador} "
+            f"{formatear_numero(derecha)} = {formatear_numero(resultado)}"
+        )
+
+        self.texto = formatear_numero(resultado)
+        self.operacion_pendiente = None
+        self.valor_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    def resolver_operacion_pendiente(self):
+        resultado = aplicar_operacion(
+            self.valor_pendiente, self.operacion_pendiente, self.valor_actual()
+        )
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return False
+        self.texto = formatear_numero(resultado)
+        self.valor_pendiente = resultado
+        self.actualizar_pantalla()
+        return True
+
+    def borrar_ultimo_digito(self):
+        if self.esperando_numero:
+            return
+        self.texto = self.texto[:-1]
+        if self.texto in ("", "-"):
+            self.texto = "0"
+        self.actualizar_pantalla()
+
+    def limpiar(self):
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    # ------------------------------------------------------------------ helpers
+    def valor_actual(self):
+        try:
+            return float(self.texto)
+        except ValueError:
+            return 0.0
+
+    def mostrar_error(self, mensaje):
+        self.texto = mensaje
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    def actualizar_pantalla(self):
+        self.etiqueta_pantalla.text = self.texto
+
+    # ---------------------------------------------------------------- historial
+    def agregar_al_historial(self, operacion):
+        self.historial.append(operacion)
+        while len(self.historial) > MAXIMO_HISTORIAL:
+            self.historial.pop(0)
+        self.actualizar_historial()
+
+    def actualizar_historial(self):
+        """Muestra las ultimas 5 operaciones, de la mas antigua a la mas reciente."""
+        for indice, etiqueta in enumerate(self.etiquetas_historial):
+            if indice < len(self.historial):
+                etiqueta.text = self.historial[indice]
+            else:
+                etiqueta.text = " "
+
+
+if __name__ == "__main__":
+    CalculadoraToga(
+        "Calculadora 3",
+        "org.ejemplo.calculadora3",
+    ).main_loop()
