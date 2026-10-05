@@ -1,0 +1,284 @@
+"""
+CALCULADORA 2 - Interfaz grafica con Tkinter
+============================================
+Biblioteca grafica: Tkinter (incluido en Python, no hay que instalar nada)
+
+Instalacion:  no requiere instalacion (viene con Python)
+Ejecucion:    python calculadora_tkinter.py
+
+Para cambiar el aspecto visual se usa el tema "clam" de ttk y una
+paleta de colores propia, de modo que se vea diferente a la calculadora 1.
+"""
+
+import sys
+import tkinter as tk
+from tkinter import ttk
+
+MAXIMO_HISTORIAL = 5
+
+# Paleta de colores (estilo oscuro)
+FONDO = "#1e1e2e"
+FONDO_PANEL = "#313244"
+TEXTO = "#cdd6f4"
+COLOR_NUMERO = "#45475a"
+COLOR_OPERADOR = "#1e66f5"
+COLOR_PELIGRO = "#f38ba8"
+COLOR_IGUAL = "#a6e3a1"
+
+
+def aplicar_operacion(izquierda, operador, derecha):
+    """Realiza la operacion indicada. Devuelve None si no se puede (division por cero)."""
+    if operador == "+":
+        return izquierda + derecha
+    if operador == "-":
+        return izquierda - derecha
+    if operador == "*":
+        return izquierda * derecha
+    if operador == "/":
+        if derecha == 0:
+            return None
+        return izquierda / derecha
+
+
+def formatear_numero(valor):
+    """Muestra 8 en lugar de 8.0 y evita los decimales innecesarios."""
+    if valor == int(valor):
+        return str(int(valor))
+    return str(round(valor, 10))
+
+
+class Calculadora(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Calculadora 2 - Tkinter")
+        self.geometry("380x620")
+        self.resizable(False, False)
+        self.configure(bg=FONDO)
+
+        # Estado de la calculadora
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.historial = []
+
+        self.configurar_estilos()
+        self.crear_interfaz()
+        self.actualizar_pantalla()
+
+    # ---------------------------------------------------------------- interfaz
+    def configurar_estilos(self):
+        estilo = ttk.Style(self)
+        estilo.theme_use("clam")
+
+        estilo.configure("Historial.TFrame", background=FONDO_PANEL)
+        estilo.configure(
+            "Historial.TLabel",
+            background=FONDO_PANEL,
+            foreground=TEXTO,
+            font=("Consolas", 12),
+        )
+        estilo.configure("Titulo.TLabel", background=FONDO, foreground=TEXTO,
+                         font=("Segoe UI", 11, "bold"))
+
+    def crear_interfaz(self):
+        contenedor = tk.Frame(self, bg=FONDO, padx=10, pady=10)
+        contenedor.pack(fill="both", expand=True)
+
+        ttk.Label(contenedor, text="CALCULADORA", style="Titulo.TLabel").pack(
+            anchor="w", pady=(0, 6)
+        )
+
+        # Pantalla
+        self.pantalla = tk.Label(
+            contenedor,
+            text="0",
+            anchor="e",
+            bg=FONDO_PANEL,
+            fg=TEXTO,
+            font=("Consolas", 30, "bold"),
+            padx=12,
+            pady=16,
+        )
+        self.pantalla.pack(fill="x")
+
+        # Teclado
+        filas = [
+            [("7", COLOR_NUMERO), ("8", COLOR_NUMERO), ("9", COLOR_NUMERO), ("/", COLOR_OPERADOR)],
+            [("4", COLOR_NUMERO), ("5", COLOR_NUMERO), ("6", COLOR_NUMERO), ("*", COLOR_OPERADOR)],
+            [("1", COLOR_NUMERO), ("2", COLOR_NUMERO), ("3", COLOR_NUMERO), ("-", COLOR_OPERADOR)],
+            [("0", COLOR_NUMERO), (".", COLOR_NUMERO), ("\u232b", COLOR_OPERADOR), ("+", COLOR_OPERADOR)],
+            [("C", COLOR_PELIGRO), ("=", COLOR_IGUAL)],
+        ]
+
+        teclado = tk.Frame(contenedor, bg=FONDO)
+        teclado.pack(fill="x", pady=10)
+
+        for numero_fila, fila in enumerate(filas):
+            columna = 0  # los botones anchos ocupan varias columnas
+            for texto, color in fila:
+                ancho = 2 if texto in ("C", "=") else 1
+                boton = tk.Button(
+                    teclado,
+                    text=texto,
+                    width=8,
+                    height=2,
+                    bg=color,
+                    fg="#11111b" if texto == "=" else "#ffffff",
+                    activebackground="#585b70",
+                    activeforeground="#ffffff",
+                    relief="flat",
+                    bd=0,
+                    font=("Segoe UI", 16, "bold"),
+                    cursor="hand2",
+                    command=lambda tecla=texto: self.pulsar_tecla(tecla),
+                )
+                boton.grid(
+                    row=numero_fila,
+                    column=columna,
+                    sticky="nsew",
+                    padx=3,
+                    pady=3,
+                    columnspan=ancho,
+                )
+                columna += ancho
+
+        for columna in range(4):
+            teclado.grid_columnconfigure(columna, weight=1)
+
+        # Historial
+        panel_historial = ttk.Frame(contenedor, style="Historial.TFrame", padding=8)
+        panel_historial.pack(fill="both", expand=True)
+        ttk.Label(
+            panel_historial, text="HISTORIAL (ultimas 5)", style="Historial.TLabel"
+        ).pack(anchor="w")
+        self.lista_historial = tk.Listbox(
+            panel_historial,
+            bg=FONDO_PANEL,
+            fg=TEXTO,
+            font=("Consolas", 12),
+            relief="flat",
+            highlightthickness=0,
+            activestyle="none",
+        )
+        self.lista_historial.pack(fill="both", expand=True, pady=(4, 0))
+
+    # ------------------------------------------------------------------ botones
+    def pulsar_tecla(self, tecla):
+        if tecla.isdigit() or tecla == ".":
+            self.escribir_numero(tecla)
+        elif tecla in "+-*/":
+            self.elegir_operador(tecla)
+        elif tecla == "=":
+            self.calcular()
+        elif tecla == "C":
+            self.limpiar()
+        elif tecla == "\u232b":
+            self.borrar_ultimo_digito()
+
+    def escribir_numero(self, digito):
+        if self.esperando_numero:
+            self.texto = ""
+            self.esperando_numero = False
+
+        if digito == ".":
+            if "." in self.texto:
+                return
+            self.texto += "." if self.texto else "0."
+        else:
+            self.texto += digito
+
+        self.actualizar_pantalla()
+
+    def elegir_operador(self, operador):
+        if self.operacion_pendiente is not None and not self.esperando_numero:
+            if not self.resolver_operacion_pendiente():
+                return
+
+        self.operacion_pendiente = operador
+        self.valor_pendiente = self.valor_actual()
+        self.esperando_numero = True
+
+    def calcular(self):
+        if self.operacion_pendiente is None or self.valor_pendiente is None:
+            return
+
+        operador = self.operacion_pendiente
+        izquierda = self.valor_pendiente
+        derecha = self.valor_actual()
+        resultado = aplicar_operacion(izquierda, operador, derecha)
+
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return
+
+        self.agregar_al_historial(
+            f"{formatear_numero(izquierda)} {operador} "
+            f"{formatear_numero(derecha)} = {formatear_numero(resultado)}"
+        )
+
+        self.texto = formatear_numero(resultado)
+        self.operacion_pendiente = None
+        self.valor_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    def resolver_operacion_pendiente(self):
+        resultado = aplicar_operacion(
+            self.valor_pendiente, self.operacion_pendiente, self.valor_actual()
+        )
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return False
+        self.texto = formatear_numero(resultado)
+        self.valor_pendiente = resultado
+        self.actualizar_pantalla()
+        return True
+
+    def borrar_ultimo_digito(self):
+        if self.esperando_numero:
+            return
+        self.texto = self.texto[:-1]
+        if self.texto in ("", "-"):
+            self.texto = "0"
+        self.actualizar_pantalla()
+
+    def limpiar(self):
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    # ------------------------------------------------------------------ helpers
+    def valor_actual(self):
+        try:
+            return float(self.texto)
+        except ValueError:
+            return 0.0
+
+    def mostrar_error(self, mensaje):
+        self.texto = mensaje
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+
+    def actualizar_pantalla(self):
+        self.pantalla.configure(text=self.texto)
+
+    # ---------------------------------------------------------------- historial
+    def agregar_al_historial(self, operacion):
+        self.historial.append(operacion)
+        while len(self.historial) > MAXIMO_HISTORIAL:
+            self.historial.pop(0)
+        self.actualizar_historial()
+
+    def actualizar_historial(self):
+        self.lista_historial.delete(0, "end")
+        for operacion in self.historial:
+            self.lista_historial.insert("end", operacion)
+
+
+if __name__ == "__main__":
+    Calculadora().mainloop()
