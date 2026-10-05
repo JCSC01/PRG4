@@ -1,0 +1,413 @@
+"""
+CALCULADORA 4 - PySide6 con menus
+==================================
+Biblioteca grafica: PySide6 (Qt 6) + QMainWindow con barra de menus
+
+Instalacion:  pip install PySide6
+Ejecucion:    python calculadora_pyside6_menus.py
+
+Incluye menus Archivo / Editar / Ayuda, barra de herramientas,
+barra de estado e historial de las ultimas 5 operaciones.
+"""
+
+import sys
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QToolBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+MAXIMO_HISTORIAL = 5
+
+
+def aplicar_operacion(izquierda, operador, derecha):
+    """Realiza la operacion indicada. Devuelve None si no se puede (division por cero)."""
+    if operador == "+":
+        return izquierda + derecha
+    if operador == "-":
+        return izquierda - derecha
+    if operador == "*":
+        return izquierda * derecha
+    if operador == "/":
+        if derecha == 0:
+            return None
+        return izquierda / derecha
+
+
+def formatear_numero(valor):
+    """Muestra 8 en lugar de 8.0 y evita los decimales innecesarios."""
+    if valor == int(valor):
+        return str(int(valor))
+    return str(round(valor, 10))
+
+
+class Calculadora(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Calculadora 4 - PySide6 con menus")
+        self.resize(420, 640)
+
+        # Estado de la calculadora
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.historial = []
+
+        self.crear_menus()
+        self.crear_interfaz()
+        self.crear_barra_estado()
+        self.actualizar_pantalla()
+        self.mostrar_mensaje("Calculadora lista. Usa el menu Ayuda para conocer mas.")
+
+    # ------------------------------------------------------------------- menus
+    def crear_menus(self):
+        barra = self.menuBar()
+
+        # Menu Archivo
+        menu_archivo = barra.addMenu("&Archivo")
+        self.accion_nueva = QAction("&Nueva operacion", self)
+        self.accion_nueva.setShortcut(QKeySequence.New)
+        self.accion_nueva.triggered.connect(self.nueva_operacion)
+        menu_archivo.addAction(self.accion_nueva)
+
+        self.accion_limpiar = QAction("&Limpiar", self)
+        self.accion_limpiar.setShortcut("Ctrl+L")
+        self.accion_limpiar.triggered.connect(self.limpiar)
+        menu_archivo.addAction(self.accion_limpiar)
+
+        menu_archivo.addSeparator()
+        self.accion_guardar = QAction("&Guardar historial...", self)
+        self.accion_guardar.setShortcut("Ctrl+G")
+        self.accion_guardar.triggered.connect(self.guardar_historial)
+        menu_archivo.addAction(self.accion_guardar)
+
+        menu_archivo.addSeparator()
+        self.accion_salir = QAction("&Salir", self)
+        self.accion_salir.setShortcut(QKeySequence.Quit)
+        self.accion_salir.triggered.connect(self.close)
+        menu_archivo.addAction(self.accion_salir)
+
+        # Menu Editar
+        menu_editar = barra.addMenu("&Editar")
+        self.accion_copiar = QAction("&Copiar", self)
+        self.accion_copiar.setShortcut(QKeySequence.Copy)
+        self.accion_copiar.triggered.connect(self.copiar)
+        menu_editar.addAction(self.accion_copiar)
+
+        self.accion_pegar = QAction("&Pegar", self)
+        self.accion_pegar.setShortcut(QKeySequence.Paste)
+        self.accion_pegar.triggered.connect(self.pegar)
+        menu_editar.addAction(self.accion_pegar)
+
+        menu_editar.addSeparator()
+        self.accion_borrar = QAction("Borrar (&Backspace)", self)
+        self.accion_borrar.setShortcut(QKeySequence("Backspace"))
+        self.accion_borrar.triggered.connect(self.borrar_ultimo_digito)
+        menu_editar.addAction(self.accion_borrar)
+
+        self.accion_borrar_todo = QAction("Borrar todo", self)
+        self.accion_borrar_todo.setShortcut(QKeySequence("Delete"))
+        self.accion_borrar_todo.triggered.connect(self.limpiar)
+        menu_editar.addAction(self.accion_borrar_todo)
+
+        # Menu Ver
+        menu_ver = barra.addMenu("&Ver")
+        self.accion_ver_historial = QAction("Mostrar &historial", self)
+        self.accion_ver_historial.setCheckable(True)
+        self.accion_ver_historial.setChecked(True)
+        self.accion_ver_historial.setShortcut("Ctrl+H")
+        self.accion_ver_historial.triggered.connect(self.alternar_historial)
+        menu_ver.addAction(self.accion_ver_historial)
+
+        # Menu Ayuda
+        menu_ayuda = barra.addMenu("A&yuda")
+        self.accion_acerca = QAction("&Acerca de...", self)
+        self.accion_acerca.triggered.connect(self.acerca_de)
+        menu_ayuda.addAction(self.accion_acerca)
+
+        self.accion_informacion = QAction("&Informacion de la aplicacion", self)
+        self.accion_informacion.setShortcut("F1")
+        self.accion_informacion.triggered.connect(self.informacion)
+        menu_ayuda.addAction(self.accion_informacion)
+
+    # ---------------------------------------------------------------- interfaz
+    def crear_interfaz(self):
+        widget = QWidget()
+        self.setCentralWidget(widget)
+        disposicion = QVBoxLayout(widget)
+        disposicion.setContentsMargins(14, 14, 14, 14)
+        disposicion.setSpacing(10)
+
+        self.pantalla = QLineEdit()
+        self.pantalla.setReadOnly(True)
+        self.pantalla.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.pantalla.setMinimumHeight(62)
+        self.pantalla.setStyleSheet(
+            "font-size: 26px; padding: 8px; border: 2px solid #3d5a80;"
+            "border-radius: 6px; background-color: #eef1f7;"
+        )
+        disposicion.addWidget(self.pantalla)
+
+        filas = [
+            [("7", 1), ("8", 1), ("9", 1), ("/", 1)],
+            [("4", 1), ("5", 1), ("6", 1), ("*", 1)],
+            [("1", 1), ("2", 1), ("3", 1), ("-", 1)],
+            [("0", 1), (".", 1), ("\u232b", 1), ("+", 1)],
+            [("C", 2), ("=", 2)],
+        ]
+
+        rejilla = QGridLayout()
+        rejilla.setSpacing(6)
+        for numero_fila, fila in enumerate(filas):
+            columna = 0  # los botones anchos ocupan varias columnas
+            for texto, ancho in fila:
+                boton = QPushButton(texto)
+                boton.setMinimumHeight(50)
+                boton.setStyleSheet(self.estilo_boton(texto))
+                boton.setProperty("tecla", texto)
+                boton.clicked.connect(self.pulsar_tecla_directamente)
+                rejilla.addWidget(boton, numero_fila, columna, 1, ancho)
+                columna += ancho
+        disposicion.addLayout(rejilla)
+
+        self.etiqueta_historial = QLabel("Historial (ultimas 5 operaciones)")
+        disposicion.addWidget(self.etiqueta_historial)
+
+        self.lista_historial = QListWidget()
+        self.lista_historial.setMinimumHeight(130)
+        disposicion.addWidget(self.lista_historial)
+
+        # Barra de herramientas con los comandos mas usados
+        barra_herramientas = QToolBar("Barra de herramientas")
+        barra_herramientas.setMovable(False)
+        barra_herramientas.addAction(self.accion_nueva)
+        barra_herramientas.addAction(self.accion_limpiar)
+        barra_herramientas.addSeparator()
+        barra_herramientas.addAction(self.accion_copiar)
+        barra_herramientas.addAction(self.accion_pegar)
+        barra_herramientas.addAction(self.accion_borrar)
+        self.addToolBar(barra_herramientas)
+
+    def estilo_boton(self, texto):
+        if texto in "+-*/=":
+            return "background-color:#3d5a80; color:white; font-size:20px; border-radius:6px;"
+        if texto == "C":
+            return "background-color:#c1121f; color:white; font-size:20px; border-radius:6px;"
+        return "background-color:#f7f8fb; font-size:20px; border:1px solid #b6bec9; border-radius:6px;"
+
+    def crear_barra_estado(self):
+        self.barra_estado = self.statusBar()
+        self.barra_estado.showMessage("Listo")
+
+    def mostrar_mensaje(self, mensaje, tiempo=4000):
+        self.barra_estado.showMessage(mensaje, tiempo)
+
+    # ------------------------------------------------------- acciones de menu
+    def nueva_operacion(self):
+        """Empieza una operacion nueva sin borrar el historial."""
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+        self.mostrar_mensaje("Nueva operacion iniciada.")
+
+    def copiar(self):
+        QApplication.clipboard().setText(self.texto)
+        self.mostrar_mensaje(f"Copiado: {self.texto}")
+
+    def pegar(self):
+        texto_portapapeles = QApplication.clipboard().text().strip()
+        try:
+            numero = float(texto_portapapeles)
+        except ValueError:
+            self.mostrar_mensaje("El portapapeles no contiene un numero valido.", 5000)
+            return
+        self.texto = formatear_numero(numero)
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+        self.mostrar_mensaje(f"Pegado: {self.texto}")
+
+    def guardar_historial(self):
+        nombre_archivo, _ = QFileDialog.getSaveFileName(
+            self, "Guardar historial", "historial.txt", "Archivos de texto (*.txt)"
+        )
+        if not nombre_archivo:
+            return
+        with open(nombre_archivo, "w", encoding="utf-8") as archivo:
+            archivo.write("\n".join(self.historial))
+        self.mostrar_mensaje(f"Historial guardado en {nombre_archivo}", 6000)
+
+    def alternar_historial(self, visible):
+        self.lista_historial.setVisible(visible)
+        self.etiqueta_historial.setVisible(visible)
+
+    def acerca_de(self):
+        QMessageBox.about(
+            self,
+            "Acerca de",
+            "<h3>Calculadora 4</h3>"
+            "<p>Calculadora basica creada con <b>PySide6</b>.</p>"
+            "<p>Incluye menus, barra de herramientas e historial.</p>"
+            "<p>Proyecto educativo - Practicas de interfaces graficas.</p>",
+        )
+
+    def informacion(self):
+        QMessageBox.information(
+            self,
+            "Informacion de la aplicacion",
+            "<h4>Como se usa</h4>"
+            "<ul>"
+            "<li>Pulsa los botones o usa el teclado numerico.</li>"
+            "<li><b>Ctrl+N</b>: nueva operacion.</li>"
+            "<li><b>Ctrl+L</b> o <b>C</b>: limpiar.</li>"
+            "<li><b>Ctrl+C</b> / <b>Ctrl+V</b>: copiar y pegar el numero.</li>"
+            "<li><b>Backspace</b>: borrar el ultimo digito.</li>"
+            "<li><b>Ctrl+H</b>: mostrar u ocultar el historial.</li>"
+            "<li><b>F1</b>: ver esta ayuda.</li>"
+            "</ul>"
+            "<p>Operaciones disponibles: + - * /</p>"
+            "<p>La division entre cero muestra un error y reinicia la calculadora.</p>",
+        )
+
+    # ------------------------------------------------------------------ botones
+    def pulsar_tecla_directamente(self):
+        self.pulsar_tecla(self.sender().property("tecla"))
+
+    def pulsar_tecla(self, tecla):
+        if tecla.isdigit() or tecla == ".":
+            self.escribir_numero(tecla)
+        elif tecla in "+-*/":
+            self.elegir_operador(tecla)
+        elif tecla == "=":
+            self.calcular()
+        elif tecla == "C":
+            self.limpiar()
+        elif tecla == "\u232b":
+            self.borrar_ultimo_digito()
+
+    def escribir_numero(self, digito):
+        if self.esperando_numero:
+            self.texto = ""
+            self.esperando_numero = False
+
+        if digito == ".":
+            if "." in self.texto:
+                return
+            self.texto += "." if self.texto else "0."
+        else:
+            self.texto += digito
+
+        self.actualizar_pantalla()
+
+    def elegir_operador(self, operador):
+        if self.operacion_pendiente is not None and not self.esperando_numero:
+            if not self.resolver_operacion_pendiente():
+                return
+
+        self.operacion_pendiente = operador
+        self.valor_pendiente = self.valor_actual()
+        self.esperando_numero = True
+
+    def calcular(self):
+        if self.operacion_pendiente is None or self.valor_pendiente is None:
+            return
+
+        operador = self.operacion_pendiente
+        izquierda = self.valor_pendiente
+        derecha = self.valor_actual()
+        resultado = aplicar_operacion(izquierda, operador, derecha)
+
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return
+
+        self.agregar_al_historial(
+            f"{formatear_numero(izquierda)} {operador} "
+            f"{formatear_numero(derecha)} = {formatear_numero(resultado)}"
+        )
+
+        self.texto = formatear_numero(resultado)
+        self.operacion_pendiente = None
+        self.valor_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+        self.mostrar_mensaje(f"{operador} = {self.texto}")
+
+    def resolver_operacion_pendiente(self):
+        resultado = aplicar_operacion(
+            self.valor_pendiente, self.operacion_pendiente, self.valor_actual()
+        )
+        if resultado is None:
+            self.mostrar_error("Error: no se puede dividir entre cero")
+            return False
+        self.texto = formatear_numero(resultado)
+        self.valor_pendiente = resultado
+        self.actualizar_pantalla()
+        return True
+
+    def borrar_ultimo_digito(self):
+        if self.esperando_numero:
+            return
+        self.texto = self.texto[:-1]
+        if self.texto in ("", "-"):
+            self.texto = "0"
+        self.actualizar_pantalla()
+
+    def limpiar(self):
+        self.texto = "0"
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+        self.mostrar_mensaje("Calculadora limpiada.")
+
+    # ------------------------------------------------------------------ helpers
+    def valor_actual(self):
+        try:
+            return float(self.texto)
+        except ValueError:
+            return 0.0
+
+    def mostrar_error(self, mensaje):
+        self.texto = mensaje
+        self.valor_pendiente = None
+        self.operacion_pendiente = None
+        self.esperando_numero = True
+        self.actualizar_pantalla()
+        self.mostrar_mensaje(mensaje, 6000)
+
+    def actualizar_pantalla(self):
+        self.pantalla.setText(self.texto)
+
+    # ---------------------------------------------------------------- historial
+    def agregar_al_historial(self, operacion):
+        self.historial.append(operacion)
+        while len(self.historial) > MAXIMO_HISTORIAL:
+            self.historial.pop(0)
+        self.actualizar_historial()
+
+    def actualizar_historial(self):
+        self.lista_historial.clear()
+        self.lista_historial.addItems(self.historial)
+
+
+if __name__ == "__main__":
+    aplicacion = QApplication(sys.argv)
+    aplicacion.setApplicationName("Calculadora 4")
+    ventana = Calculadora()
+    ventana.show()
+    sys.exit(aplicacion.exec())
