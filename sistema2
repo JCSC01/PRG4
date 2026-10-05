@@ -1,1 +1,542 @@
+# -*- coding: utf-8 -*-
+"""
+Sistema 2: Registro de Productos de Tienda
+Tema: Oscuro tipo POS/Tienda (negro/azul/morado), diseño diferente al Sistema 1
+Usa: QLabel, QPushButton, QLineEdit, QTextEdit, QVBoxLayout, QHBoxLayout,
+QGridLayout, QFormLayout, QCheckBox, QRadioButton, QComboBox,
+QApplication, QWidget, QMainWindow, QDialog (usado QDialog para detalles)
+
+Funciones: Registrar, Buscar, Editar, Eliminar, Limpiar, Categorías,
+Características (check), Estados (radio), Mostrar info, Validar, Confirmaciones.
+Estructura: QWidget como ventana principal + QDialog secundario.
+"""
+import sys
+from datetime import datetime
+from PySide6.QtWidgets import (
+    QApplication,
+    QWidget,
+    QDialog,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QTextEdit,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QFormLayout,
+    QCheckBox,
+    QRadioButton,
+    QComboBox,
+    QGroupBox,
+    QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QFrame,
+    QSplitter,
+)
+from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt
+
+
+class DetalleProductoDialog(QDialog):
+    def __init__(self, datos, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Detalles del Producto")
+        self.setFixedSize(420, 360)
+        self.setModal(True)
+
+        v = QVBoxLayout(self)
+        t = QLabel("Información del producto registrado")
+        ft = QFont()
+        ft.setPointSize(11)
+        ft.setBold(True)
+        t.setFont(ft)
+        t.setAlignment(Qt.AlignCenter)
+        v.addWidget(t)
+
+        f = QFormLayout()
+        f.addRow("SKU:", QLabel(datos.get("sku", "-")))
+        f.addRow("Nombre:", QLabel(datos.get("nombre", "-")))
+        f.addRow("Categoría:", QLabel(datos.get("categoria", "-")))
+        f.addRow("Precio (S/.):", QLabel(datos.get("precio", "-")))
+        f.addRow("Stock:", QLabel(datos.get("stock", "-")))
+        f.addRow("Estado:", QLabel(datos.get("estado", "-")))
+        f.addRow("Características:", QLabel(datos.get("caracteristicas", "-") or "-"))
+        f.addRow("Fecha:", QLabel(datos.get("fecha", "-")))
+        f.addRow("Descripción:", QLabel(datos.get("descripcion", "-") or "-"))
+        v.addLayout(f)
+
+        h = QHBoxLayout()
+        b = QPushButton("Cerrar")
+        b.setDefault(True)
+        b.clicked.connect(self.accept)
+        h.addStretch()
+        h.addWidget(b)
+        v.addLayout(h)
+
+
+class ConfirmacionDialog(QDialog):
+    def __init__(self, mensaje, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Confirmación")
+        self.setFixedSize(340, 120)
+        self.setModal(True)
+        v = QVBoxLayout(self)
+        l = QLabel(mensaje)
+        l.setWordWrap(True)
+        l.setAlignment(Qt.AlignCenter)
+        v.addWidget(l)
+        h = QHBoxLayout()
+        si = QPushButton("Sí")
+        no = QPushButton("No")
+        no.setDefault(True)
+        si.clicked.connect(self.accept)
+        no.clicked.connect(self.reject)
+        h.addStretch()
+        h.addWidget(si)
+        h.addWidget(no)
+        h.addStretch()
+        v.addLayout(h)
+
+
+class SistemaProductos(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Sistema 2 - Registro de Productos (Tienda)")
+        self.setMinimumSize(980, 660)
+        self.registros = []
+        self.editando_index = -1
+        self._setup_ui()
+        self._estilo_oscuro()
+        self._mostrar_tabla()
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 18, 18, 18)
+        root.setSpacing(12)
+
+        # Título
+        titulo = QLabel("Gestión de Productos - Inventario de Tienda")
+        ft = QFont()
+        ft.setPointSize(16)
+        ft.setBold(True)
+        titulo.setFont(ft)
+        titulo.setAlignment(Qt.AlignCenter)
+        root.addWidget(titulo)
+
+        linea = QFrame()
+        linea.setFrameShape(QFrame.HLine)
+        root.addWidget(linea)
+
+        splitter = QSplitter(Qt.Horizontal)
+        root.addWidget(splitter, stretch=1)
+
+        # Izquierda: formulario (QGridLayout + QFormLayout)
+        izq = QWidget()
+        v_izq = QVBoxLayout(izq)
+        v_izq.setContentsMargins(10, 10, 10, 10)
+        v_izq.setSpacing(10)
+
+        gb_prod = QGroupBox("Datos del Producto")
+        v_gb = QVBoxLayout(gb_prod)
+
+        # QFormLayout compacto
+        f1 = QFormLayout()
+        f1.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        f1.setHorizontalSpacing(10)
+        f1.setVerticalSpacing(6)
+        self.txt_sku = QLineEdit()
+        self.txt_sku.setPlaceholderText("Ej. PR-1001")
+        self.txt_nombre = QLineEdit()
+        self.txt_nombre.setPlaceholderText("Nombre del producto")
+        self.cmb_categoria = QComboBox()
+        self.cmb_categoria.addItems(
+            ["-- Seleccionar --", "Limpieza", "Alimentos", "Bebidas", "Hogar", "Tecnología", "Oficina"]
+        )
+        self.txt_precio = QLineEdit()
+        self.txt_precio.setPlaceholderText("0.00")
+        self.txt_stock = QLineEdit()
+        self.txt_stock.setPlaceholderText("0")
+        f1.addRow("SKU *:", self.txt_sku)
+        f1.addRow("Nombre *:", self.txt_nombre)
+        f1.addRow("Categoría *:", self.cmb_categoria)
+        f1.addRow("Precio (S/.) *:", self.txt_precio)
+        f1.addRow("Stock *:", self.txt_stock)
+        v_gb.addLayout(f1)
+
+        # Estado: QRadioButton (vertical agrupado)
+        gb_estado = QGroupBox("Estado del producto")
+        v_est = QVBoxLayout(gb_estado)
+        self.rb_activo = QRadioButton("Activo (en venta)")
+        self.rb_agotado = QRadioButton("Agotado")
+        self.rb_baja = QRadioButton("En baja")
+        self.rb_inactivo = QRadioButton("Inactivo")
+        v_est.addWidget(self.rb_activo)
+        v_est.addWidget(self.rb_agotado)
+        v_est.addWidget(self.rb_baja)
+        v_est.addWidget(self.rb_inactivo)
+        v_gb.addWidget(gb_estado)
+
+        # Características: QCheckBox en QGridLayout
+        gb_car = QGroupBox("Características")
+        g_car = QGridLayout(gb_car)
+        self.chk_promo = QCheckBox("En promoción")
+        self.chk_envio = QCheckBox("Envío gratis")
+        self.chk_fragil = QCheckBox("Frágil")
+        self.chk_reutil = QCheckBox("Reutilizable")
+        self.chk_desc = QCheckBox("Descuento aplicable")
+        g_car.addWidget(self.chk_promo, 0, 0)
+        g_car.addWidget(self.chk_envio, 0, 1)
+        g_car.addWidget(self.chk_fragil, 1, 0)
+        g_car.addWidget(self.chk_reutil, 1, 1)
+        g_car.addWidget(self.chk_desc, 2, 0, 1, 2)
+        v_gb.addWidget(gb_car)
+
+        # Descripción: QTextEdit
+        gb_desc = QGroupBox("Descripción del producto")
+        v_desc = QVBoxLayout(gb_desc)
+        self.txt_desc = QTextEdit()
+        self.txt_desc.setPlaceholderText("Breve descripción...")
+        self.txt_desc.setFixedHeight(80)
+        v_desc.addWidget(self.txt_desc)
+        v_gb.addWidget(gb_desc)
+
+        v_izq.addWidget(gb_prod)
+
+        # Botones QHBoxLayout + distribución
+        h_btn = QHBoxLayout()
+        self.btn_registrar = QPushButton("Registrar producto")
+        self.btn_buscar = QPushButton("Buscar")
+        self.btn_editar = QPushButton("Guardar edición")
+        self.btn_eliminar = QPushButton("Eliminar")
+        self.btn_limpiar = QPushButton("Limpiar formulario")
+        self.btn_mostrar = QPushButton("Mostrar información")
+        self.btn_cancelar = QPushButton("Cancelar edición")
+        self.btn_cancelar.setVisible(False)
+        self.btn_editar.setEnabled(False)
+        h_btn.addWidget(self.btn_registrar)
+        h_btn.addWidget(self.btn_limpiar)
+        h_btn.addWidget(self.btn_editar)
+        h_btn.addWidget(self.btn_cancelar)
+        h_btn.addWidget(self.btn_eliminar)
+        h_btn.addWidget(self.btn_buscar)
+        h_btn.addWidget(self.btn_mostrar)
+        h_btn.addStretch()
+        v_izq.addLayout(h_btn)
+
+        splitter.addWidget(izq)
+
+        # Derecha: tabla
+        der = QWidget()
+        v_der = QVBoxLayout(der)
+        v_der.setContentsMargins(8, 8, 8, 8)
+        v_der.setSpacing(8)
+        lbl_r = QLabel("Inventario registrado (en memoria)")
+        fr = QFont()
+        fr.setBold(True)
+        lbl_r.setFont(fr)
+        v_der.addWidget(lbl_r)
+
+        self.tabla = QTableWidget(0, 8)
+        self.tabla.setHorizontalHeaderLabels(
+            ["SKU", "Nombre", "Categoría", "Precio S/.", "Stock", "Estado", "Características", "Fecha"]
+        )
+        self.tabla.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tabla.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tabla.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tabla.setAlternatingRowColors(True)
+        v_der.addWidget(self.tabla)
+
+        h_inf = QHBoxLayout()
+        self.lbl_total = QLabel("Total de productos: 0")
+        h_inf.addWidget(self.lbl_total)
+        h_inf.addStretch()
+        v_der.addLayout(h_inf)
+
+        splitter.addWidget(der)
+        splitter.setSizes([420, 560])
+
+        pie = QHBoxLayout()
+        pie.addWidget(QLabel("PySide6 • Sistema 2 • QWidget + QDialog"))
+        pie.addStretch()
+        root.addLayout(pie)
+
+        # Conexiones
+        self.btn_registrar.clicked.connect(self.registrar)
+        self.btn_limpiar.clicked.connect(self.limpiar)
+        self.btn_buscar.clicked.connect(self.buscar)
+        self.btn_editar.clicked.connect(self.guardar_edicion)
+        self.btn_cancelar.clicked.connect(self.cancelar_edicion)
+        self.btn_eliminar.clicked.connect(self.eliminar)
+        self.btn_mostrar.clicked.connect(self.mostrar_info)
+        self.tabla.itemDoubleClicked.connect(lambda: self.cargar_para_editar())
+
+    def _estilo_oscuro(self):
+        self.setStyleSheet(
+            """
+            QWidget { background: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; }
+            QLabel { color: #e2e8f0; }
+            QGroupBox { border: 1px solid #334155; border-radius: 8px; padding: 10px; margin-top: 6px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #38bdf8; font-weight: bold; }
+            QLineEdit, QTextEdit, QComboBox { border: 1px solid #475569; border-radius: 6px; padding: 6px; background: #111827; color: #e5e7eb; }
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border: 2px solid #818cf8; }
+            QPushButton { background: #4f46e5; color: #ffffff; border: none; border-radius: 6px; padding: 7px 12px; }
+            QPushButton:hover { background: #6366f1; }
+            QPushButton:pressed { background: #4338ca; }
+            QPushButton:disabled { background: #475569; color: #94a3b8; }
+            QTableWidget { background: #0b1225; gridline-color: #1f2937; border: 1px solid #1f2937; border-radius: 6px; color: #e5e7eb; alternate-background-color: #0f182f; }
+            QHeaderView::section { background: #0f3d56; padding: 6px; border: none; font-weight: bold; color: #e2e8f0; }
+            QSplitter::handle { background: #334155; width: 3px; }
+            QRadioButton, QCheckBox { spacing: 6px; }
+            QFrame { color: #334155; }
+            QComboBox QAbstractItemView { background: #0f172a; selection-background-color: #1e3a8a; }
+            """
+        )
+
+    def _estado(self):
+        if self.rb_activo.isChecked():
+            return "Activo"
+        if self.rb_agotado.isChecked():
+            return "Agotado"
+        if self.rb_baja.isChecked():
+            return "En baja"
+        if self.rb_inactivo.isChecked():
+            return "Inactivo"
+        return ""
+
+    def _carac(self):
+        c = []
+        if self.chk_promo.isChecked():
+            c.append("En promoción")
+        if self.chk_envio.isChecked():
+            c.append("Envío gratis")
+        if self.chk_fragil.isChecked():
+            c.append("Frágil")
+        if self.chk_reutil.isChecked():
+            c.append("Reutilizable")
+        if self.chk_desc.isChecked():
+            c.append("Descuento aplicable")
+        return ", ".join(c)
+
+    def _set_carac(self, t):
+        t = (t or "").lower()
+        self.chk_promo.setChecked("promoción" in t or "promocion" in t)
+        self.chk_envio.setChecked("envío" in t or "envio" in t)
+        self.chk_fragil.setChecked("frágil" in t or "fragil" in t)
+        self.chk_reutil.setChecked("reutilizable" in t)
+        self.chk_desc.setChecked("descuento" in t)
+
+    def _set_estado(self, e):
+        e = (e or "").lower()
+        self.rb_activo.setChecked(e == "activo")
+        self.rb_agotado.setChecked(e == "agotado")
+        self.rb_baja.setChecked("baja" in e)
+        self.rb_inactivo.setChecked(e == "inactivo")
+
+    def validar(self, d):
+        if not d.get("sku"):
+            return False, "SKU es obligatorio."
+        if not d.get("nombre"):
+            return False, "Nombre es obligatorio."
+        if d.get("categoria") == "-- Seleccionar --":
+            return False, "Debe seleccionar una categoría."
+        try:
+            float(d.get("precio") or "0")
+        except ValueError:
+            return False, "Precio debe ser numérico."
+        try:
+            int(d.get("stock") or "-1")
+        except ValueError:
+            return False, "Stock debe ser entero."
+        if not d.get("estado"):
+            return False, "Debe seleccionar un estado."
+        return True, ""
+
+    def limpiar(self):
+        self.txt_sku.clear()
+        self.txt_nombre.clear()
+        self.cmb_categoria.setCurrentIndex(0)
+        self.txt_precio.clear()
+        self.txt_stock.clear()
+        self.rb_activo.setAutoExclusive(False)
+        self.rb_agotado.setAutoExclusive(False)
+        self.rb_baja.setAutoExclusive(False)
+        self.rb_inactivo.setAutoExclusive(False)
+        self.rb_activo.setChecked(False)
+        self.rb_agotado.setChecked(False)
+        self.rb_baja.setChecked(False)
+        self.rb_inactivo.setChecked(False)
+        self.rb_activo.setAutoExclusive(True)
+        self.rb_agotado.setAutoExclusive(True)
+        self.rb_baja.setAutoExclusive(True)
+        self.rb_inactivo.setAutoExclusive(True)
+        self.chk_promo.setChecked(False)
+        self.chk_envio.setChecked(False)
+        self.chk_fragil.setChecked(False)
+        self.chk_reutil.setChecked(False)
+        self.chk_desc.setChecked(False)
+        self.txt_desc.clear()
+        self.editando_index = -1
+        self.btn_registrar.setEnabled(True)
+        self.btn_editar.setEnabled(False)
+        self.btn_cancelar.setVisible(False)
+        self.tabla.clearSelection()
+        self.txt_sku.setFocus()
+
+    def registrar(self):
+        d = {
+            "sku": self.txt_sku.text().strip(),
+            "nombre": self.txt_nombre.text().strip(),
+            "categoria": self.cmb_categoria.currentText(),
+            "precio": self.txt_precio.text().strip(),
+            "stock": self.txt_stock.text().strip(),
+            "estado": self._estado(),
+            "caracteristicas": self._carac(),
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "descripcion": self.txt_desc.toPlainText().strip(),
+        }
+        ok, msg = self.validar(d)
+        if not ok:
+            QMessageBox.warning(self, "Validación", msg)
+            return
+        if any(r["sku"].lower() == d["sku"].lower() for r in self.registros):
+            QMessageBox.warning(self, "Validación", "Ya existe un producto con ese SKU.")
+            return
+        if ConfirmacionDialog("¿Confirmas registrar este producto?", self).exec() == QDialog.Accepted:
+            self.registros.append(d)
+            self.limpiar()
+            self._mostrar_tabla()
+            QMessageBox.information(self, "Éxito", "Producto registrado correctamente.")
+
+    def _mostrar_tabla(self):
+        self.tabla.setRowCount(len(self.registros))
+        for i, r in enumerate(self.registros):
+            self.tabla.setItem(i, 0, QTableWidgetItem(r["sku"]))
+            self.tabla.setItem(i, 1, QTableWidgetItem(r["nombre"]))
+            self.tabla.setItem(i, 2, QTableWidgetItem(r["categoria"]))
+            self.tabla.setItem(i, 3, QTableWidgetItem(r["precio"]))
+            self.tabla.setItem(i, 4, QTableWidgetItem(r["stock"]))
+            self.tabla.setItem(i, 5, QTableWidgetItem(r["estado"]))
+            self.tabla.setItem(i, 6, QTableWidgetItem(r["caracteristicas"]))
+            self.tabla.setItem(i, 7, QTableWidgetItem(r["fecha"]))
+        self.lbl_total.setText(f"Total de productos: {len(self.registros)}")
+
+    def cargar_para_editar(self):
+        if not self.registros:
+            return
+        rows = self.tabla.selectionModel().selectedRows()
+        if not rows:
+            QMessageBox.information(self, "Editar", "Seleccione una fila.")
+            return
+        idx = rows[0].row()
+        if idx < 0 or idx >= len(self.registros):
+            return
+        r = self.registros[idx]
+        self.editando_index = idx
+        self.txt_sku.setText(r["sku"])
+        self.txt_nombre.setText(r["nombre"])
+        self.cmb_categoria.setCurrentText(r["categoria"])
+        self.txt_precio.setText(r["precio"])
+        self.txt_stock.setText(r["stock"])
+        self._set_estado(r["estado"])
+        self._set_carac(r["caracteristicas"])
+        self.txt_desc.setPlainText(r.get("descripcion", ""))
+        self.btn_registrar.setEnabled(False)
+        self.btn_editar.setEnabled(True)
+        self.btn_cancelar.setVisible(True)
+        self.txt_sku.setFocus()
+
+    def guardar_edicion(self):
+        if self.editando_index < 0:
+            return
+        d = {
+            "sku": self.txt_sku.text().strip(),
+            "nombre": self.txt_nombre.text().strip(),
+            "categoria": self.cmb_categoria.currentText(),
+            "precio": self.txt_precio.text().strip(),
+            "stock": self.txt_stock.text().strip(),
+            "estado": self._estado(),
+            "caracteristicas": self._carac(),
+            "fecha": self.registros[self.editando_index].get("fecha", datetime.now().strftime("%d/%m/%Y %H:%M")),
+            "descripcion": self.txt_desc.toPlainText().strip(),
+        }
+        ok, msg = self.validar(d)
+        if not ok:
+            QMessageBox.warning(self, "Validación", msg)
+            return
+        for i, r in enumerate(self.registros):
+            if i != self.editando_index and r["sku"].lower() == d["sku"].lower():
+                QMessageBox.warning(self, "Validación", "SKU ya existe en otro registro.")
+                return
+        if ConfirmacionDialog("¿Confirmas guardar los cambios?", self).exec() == QDialog.Accepted:
+            self.registros[self.editando_index] = d
+            self.cancelar_edicion()
+            self._mostrar_tabla()
+            QMessageBox.information(self, "Éxito", "Producto editado correctamente.")
+
+    def cancelar_edicion(self):
+        self.limpiar()
+
+    def eliminar(self):
+        if not self.registros:
+            QMessageBox.information(self, "Eliminar", "No hay registros.")
+            return
+        rows = self.tabla.selectionModel().selectedRows()
+        if not rows:
+            QMessageBox.information(self, "Eliminar", "Seleccione una fila.")
+            return
+        idx = rows[0].row()
+        nombre = self.registros[idx]["nombre"]
+        if ConfirmacionDialog(f"¿Confirmas eliminar '{nombre}'?", self).exec() == QDialog.Accepted:
+            del self.registros[idx]
+            if self.editando_index == idx:
+                self.cancelar_edicion()
+            elif self.editando_index > idx:
+                self.editando_index -= 1
+            self._mostrar_tabla()
+            QMessageBox.information(self, "Éxito", "Registro eliminado correctamente.")
+
+    def buscar(self):
+        t = (self.txt_sku.text().strip() or self.txt_nombre.text().strip()).lower()
+        if not t:
+            QMessageBox.information(self, "Buscar", "Ingrese SKU o nombre.")
+            return
+        res = [r for r in self.registros if t in r["sku"].lower() or t in r["nombre"].lower()]
+        if not res:
+            QMessageBox.information(self, "Buscar", "No se encontraron productos.")
+            return
+        r = res[0]
+        try:
+            idx = self.registros.index(r)
+        except ValueError:
+            idx = -1
+        if idx >= 0:
+            self.tabla.selectRow(idx)
+            self.cargar_para_editar()
+        DetalleProductoDialog(r, self).exec()
+
+    def mostrar_info(self):
+        if not self.registros:
+            QMessageBox.information(self, "Información", "No hay registros.")
+            return
+        rows = self.tabla.selectionModel().selectedRows()
+        if not rows:
+            QMessageBox.information(self, "Información", "Seleccione un registro.")
+            return
+        idx = rows[0].row()
+        DetalleProductoDialog(self.registros[idx], self).exec()
+
+
+def main():
+    app = QApplication(sys.argv)
+    w = SistemaProductos()
+    w.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
+
+# Desarrollado por SARMIENTO
 
